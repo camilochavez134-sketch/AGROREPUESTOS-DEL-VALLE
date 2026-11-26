@@ -3,26 +3,19 @@ import sqlite3
 import pandas as pd
 import datetime
 
-# Configuración básica de la página
 st.set_page_config(page_title="SIGA - AgroRepuestos del Valle", layout="wide")
 
 
-# ==========================================
-# 1. CONEXIÓN E INICIALIZACIÓN DE LA BASE DE DATOS
-# ==========================================
 @st.cache_resource
 def obtener_conexion():
-    # Conexión compatible con múltiples hilos en Streamlit
     conn = sqlite3.connect("mi_sistema.db", check_same_thread=False)
     conn.execute("PRAGMA foreign_keys = ON")
     cur = conn.cursor()
 
-    # Verificar si las tablas ya existen para no borrar datos entre reinicios
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='productos'")
     tabla_existe = cur.fetchone()
 
     if not tabla_existe:
-        # Creación de tablas originales del Avance 4
         cur.executescript("""
         CREATE TABLE proveedores (
             id_proveedor    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +48,6 @@ def obtener_conexion():
         );
         """)
 
-        # Inserción de proveedores de prueba
         cur.executemany(
             "INSERT INTO proveedores (nombre, telefono) VALUES (?, ?)",
             [
@@ -66,7 +58,6 @@ def obtener_conexion():
             ],
         )
 
-        # Inserción de clientes de prueba
         cur.executemany(
             "INSERT INTO clientes (nombre, telefono) VALUES (?, ?)",
             [
@@ -77,7 +68,6 @@ def obtener_conexion():
             ],
         )
 
-        # Inserción de productos de prueba
         cur.executemany(
             """INSERT INTO productos (nombre, categoria, precio_unitario, stock_minimo)
                VALUES (?, ?, ?, ?)""",
@@ -97,7 +87,6 @@ def obtener_conexion():
             ],
         )
 
-        # Inserción de movimientos iniciales de entrada
         cur.executemany(
             """INSERT INTO movimientos (id_producto, tipo, cantidad, fecha, id_proveedor)
                VALUES (?, ?, ?, ?, ?)""",
@@ -109,7 +98,6 @@ def obtener_conexion():
             ],
         )
 
-        # Inserción de movimientos iniciales de salida
         cur.executemany(
             """INSERT INTO movimientos (id_producto, tipo, cantidad, fecha, id_cliente)
                VALUES (?, ?, ?, ?, ?)""",
@@ -121,7 +109,6 @@ def obtener_conexion():
             ],
         )
 
-        # Creación de la vista original vw_inventario
         cur.execute("""
         CREATE VIEW IF NOT EXISTS vw_inventario AS
         SELECT
@@ -143,14 +130,10 @@ def obtener_conexion():
     return conn
 
 
-# Inicializar conexión y cursor globales
 conexion = obtener_conexion()
 cursor = conexion.cursor()
 
 
-# ==========================================
-# 2. FUNCIONES ORIGINALES DEL AVANCE 4 (SIN ALTERAR LÓGICA NI SQL)
-# ==========================================
 def existe_producto(id_producto):
     cursor.execute("SELECT 1 FROM productos WHERE id_producto = ?", (id_producto,))
     return cursor.fetchone() is not None
@@ -243,7 +226,6 @@ def alertas_stock_bajo(minimo_limite=None):
 
 
 def consultar_movimientos_proveedor(id_proveedor):
-    """Devuelve los movimientos de productos asociados a un proveedor específico"""
     sql = """
     SELECT m.id_movimiento, p.nombre AS producto, m.tipo, m.cantidad, m.fecha
     FROM movimientos m
@@ -254,10 +236,39 @@ def consultar_movimientos_proveedor(id_proveedor):
 
 
 def registro_lote_entradas(lista_entradas):
-    """Recibe una lista de tuplas [(id_producto, cantidad), ...] y las procesa juntas"""
     try:
         for id_prod, cant in lista_entradas:
             if cant <= 0:
                 raise ValueError(f"Cantidad inválida ({cant}) para el producto ID {id_prod}")
 
             cursor.execute("SELECT nombre FROM productos WHERE id_producto = ?", (id_prod,))
+            if not cursor.fetchone():
+                raise ValueError(f"El producto con ID {id_prod} no existe")
+
+            cursor.execute(
+                "INSERT INTO movimientos (id_producto, tipo, cantidad, fecha) VALUES (?, 'entrada', ?, ?)",
+                (id_prod, cant, datetime.date.today().strftime("%Y-%m-%d"))
+            )
+
+        conexion.commit()
+        return True, "Éxito: El lote completo de movimientos fue guardado."
+    except Exception as e:
+        conexion.rollback()
+        return False, f"Transacción cancelada (Rollback ejecutado): {str(e)}"
+
+
+def main():
+    df_inventario = consultar_inventario()
+    df_alertas_base = alertas_stock_bajo()
+
+    tab_inicio, tab_movimiento, tab_inventario, tab_alertas = st.tabs([
+        "Inicio",
+        "Registrar movimiento",
+        "Inventario",
+        "Alertas"
+    ])
+
+    with tab_inicio:
+        st.title("SIGA - Sistema de Gestión de Inventario")
+        st.subheader("AGROREPUESTOS DEL VALLE")
+        st.write(
