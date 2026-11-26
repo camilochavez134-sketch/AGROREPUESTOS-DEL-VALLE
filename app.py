@@ -271,3 +271,71 @@ def main():
     with tab_inicio:
         st.title("SIGA - Sistema de Gestión de Inventario")
         st.subheader("AGROREPUESTOS DEL VALLE")
+        st.write("Plataforma web para el control de existencias y alertas de repuestos agrícolas.")
+
+        total_productos = len(df_inventario)
+        total_unidades = int(df_inventario["stock_actual"].sum()) if not df_inventario.empty else 0
+        total_alertas = len(df_alertas_base)
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Número de productos", total_productos)
+        col2.metric("Unidades en stock", total_unidades)
+        col3.metric("Productos con stock bajo", total_alertas)
+
+    with tab_movimiento:
+        st.header("Registrar movimiento de inventario")
+
+        if "resultado_movimiento" in st.session_state:
+            exito_prev, msg_prev = st.session_state.pop("resultado_movimiento")
+            if exito_prev:
+                st.success(msg_prev)
+            else:
+                st.error(msg_prev)
+
+        opciones_productos = dict(zip(df_inventario["nombre"], df_inventario["id_producto"]))
+
+        with st.form("form_movimiento"):
+            nombre_seleccionado = st.selectbox("Seleccione el repuesto", options=list(opciones_productos.keys()))
+            tipo_movimiento = st.selectbox("Tipo de movimiento", options=["entrada", "salida"])
+            cantidad_movimiento = st.number_input("Cantidad", min_value=1, step=1, value=1)
+            boton_guardar = st.form_submit_button("Registrar movimiento")
+
+            if boton_guardar:
+                id_prod_elegido = opciones_productos[nombre_seleccionado]
+                if tipo_movimiento == "entrada":
+                    exito, mensaje = registrar_entrada(id_prod_elegido, int(cantidad_movimiento))
+                else:
+                    exito, mensaje = registrar_salida(id_prod_elegido, int(cantidad_movimiento))
+
+                st.session_state["resultado_movimiento"] = (exito, mensaje)
+                st.rerun()
+
+    with tab_inventario:
+        st.header("Consulta de inventario actual")
+
+        categorias_disponibles = ["Todas"] + sorted(df_inventario["categoria"].unique().tolist())
+        categoria_elegida = st.selectbox("Filtrar por categoría", options=categorias_disponibles)
+
+        if categoria_elegida == "Todas":
+            df_filtrado = consultar_inventario()
+        else:
+            df_filtrado = consultar_inventario(categoria=categoria_elegida)
+
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+
+    with tab_alertas:
+        st.header("Alertas de stock bajo")
+
+        stock_limite = st.slider("Seleccione el nivel de stock mínimo", min_value=1, max_value=25, value=6)
+        df_alertas_filtradas = alertas_stock_bajo(minimo_limite=stock_limite)
+
+        if df_alertas_filtradas.empty:
+            st.info(f"No hay productos con stock por debajo de {stock_limite} unidades.")
+        else:
+            st.dataframe(df_alertas_filtradas, use_container_width=True, hide_index=True)
+            st.subheader("Comparativa de stock actual")
+            st.bar_chart(df_alertas_filtradas.set_index("nombre")["stock_actual"])
+
+
+if __name__ == "__main__":
+    main()
